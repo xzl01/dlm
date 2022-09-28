@@ -1,0 +1,118 @@
+.TH DLM_TOOL 8 2012-04-05 dlm dlm
+
+.SH NAME
+dlm_tool \- a utility for the dlm and dlm_controld daemon
+
+.SH SYNOPSIS
+.B dlm_tool
+[COMMAND] [OPTIONS]
+[
+.I name
+]
+
+.SH COMMANDS 
+
+.B ls
+.br
+	Display dlm_controld internal lockspace state.
+
+.B status
+.br
+	Dump dlm_controld daemon state.
+
+.B dump
+.br
+	Dump dlm_controld debug buffer.
+
+.B dump_config
+.br
+	Dump dlm_controld config settings.
+
+.BI fence_ack " nodeid"
+.br
+	Quit trying to fence a node.
+
+.B log_plock
+.br
+	Dump dlm_controld plock debug buffer.
+
+.BI plocks " name"
+.br
+	Dump posix locks from dlm_controld for the lockspace.
+
+.BI join " name"
+.br
+	Join a lockspace.
+
+.BI leave " name"
+.br
+	Leave a lockspace.
+
+.BI lockdebug " name"
+.br
+	Complete display of locks from the lockspace.
+
+.BI lockdump " name"
+.br
+	Minimal display of locks from the lockspace (deprecated).
+
+.BI run " command"
+.br
+	Run command and check for result.
+
+.BI run_start " command"
+.br
+	Run command and don't check for result.
+
+.BI run_check " uuid"
+.br
+	Check status of a command that was run.
+
+.BI run_cancel " uuid"
+.br
+	Cancel a command that was run and is not yet done.
+
+.BI run_list
+.br
+	Dump a list of running commands.
+
+
+.SH OPTIONS
+
+.B \-n
+Show all node information in ls.
+
+.B \-d
+0|1 Resource directory off/on in join, default 0
+
+.B \-e
+0|1 Exclusive create off/on in join, default 0
+
+.B \-f
+0|1 FS (filesystem) flag off/on in join, default 0
+
+.BI \-m " mode"
+Permission mode for lockspace device (octal), default 0600
+
+.B \-s
+Summary following lockdebug output (experiemental)
+
+.B \-v
+Verbose lockdebug output
+
+.B \-w
+Wide lockdebug output
+
+.B \-M
+Include MSTCPY locks in lockdump output
+
+.B \-h
+Print help, then exit
+
+.B \-V
+Print program version information, then exit
+
+.SH SEE ALSO
+.BR dlm_controld (8),
+.BR dlm.conf (5)
+
