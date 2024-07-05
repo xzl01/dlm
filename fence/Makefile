@@ -15,20 +15,27 @@ CFLAGS += -D_GNU_SOURCE -O2 -ggdb \
 	-Wno-sign-compare -Wno-unused-parameter -Wp,-D_FORTIFY_SOURCE=2 \
 	-fexceptions -fasynchronous-unwind-tables -fdiagnostics-show-option \
 	-Wp,-D_GLIBCXX_ASSERTIONS -fstack-protector-strong \
-	-fstack-clash-protection -Wl,-z,now
+	-fstack-clash-protection
 
 CFLAGS += -fPIE -DPIE
-CFLAGS += `xml2-config --cflags`
 CFLAGS += -I../include
 
-LDFLAGS += -Wl,-z,relro -pie
-LDFLAGS += `xml2-config --libs`
+PKG_CONFIG ?= pkg-config
+PKG_CONFIG_FLAGS := --errors-to-stdout
+
+PACEMAKER_CFLAGS := $(shell $(PKG_CONFIG) $(PKG_CONFIG_FLAGS) --cflags pacemaker-fencing)
+PACEMAKER_CFLAGS_STATUS := $(.SHELLSTATUS)
+
+LDFLAGS += -Wl,-z,relro -Wl,-z,now -pie
 LDFLAGS += -ldl
 
 all: $(BIN_TARGET)
 
 $(BIN_TARGET): $(BIN_SOURCE)
-	$(CC) $(BIN_SOURCE) $(CFLAGS) $(LDFLAGS) -o $@ -L.
+ifneq ($(PACEMAKER_CFLAGS_STATUS),0)
+	$(error "Failed to call pkg-config for pacemaker cflags: $(PACEMAKER_CFLAGS)")
+endif
+	$(CC) $(BIN_SOURCE) $(CFLAGS) $(PACEMAKER_CFLAGS) $(LDFLAGS) -o $@ -L.
 
 clean:
 	rm -f *.o *.so *.so.* $(BIN_TARGET)

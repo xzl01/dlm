@@ -6,7 +6,13 @@ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 # Ensure that we link against all needed libraries (cf. Policy 10.2)
 export DEB_LDFLAGS_MAINT_APPEND=-Wl,-z,defs
 
-DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+# Fix FTCBFS: export PKG_CONFIG for all targets
+include /usr/share/dpkg/architecture.mk
+DPKG_EXPORT_BUILDTOOLS=1
+include /usr/share/dpkg/buildtools.mk
+
+export deb_systemdsystemunitdir = $(shell pkg-config --variable=systemdsystemunitdir systemd | sed s,^/,,)
+export deb_udevdir = $(shell pkg-config --variable=udevdir udev | sed s,^/,,)
 
 %:
 	dh $@
@@ -15,7 +21,7 @@ override_dh_auto_install:
 	dh_auto_install -- LIBNUM=/lib/$(DEB_HOST_MULTIARCH)
 
 DEFDIR=debian/dlm-controld/etc/default
-SDDIR= debian/dlm-controld/lib/systemd/system
+SDDIR=debian/dlm-controld/$(deb_systemdsystemunitdir)
 override_dh_install:
 	dh_install
 	mkdir -p "$(DEFDIR)" "$(SDDIR)"

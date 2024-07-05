@@ -10,6 +10,8 @@
 #ifndef __LIBDLM_H
 #define __LIBDLM_H
 
+#include <stdint.h>
+
 /*
  * Typedefs for things that are compatible with the kernel but replicated here
  * so that users only need the libdlm include file.  libdlm itself needs the

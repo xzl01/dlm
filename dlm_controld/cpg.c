@@ -450,7 +450,7 @@ static int check_ringid_done(struct lockspace *ls)
 	   but that's probably not guaranteed.) */
 
 	if (ls->cpg_ringid_wait) {
-		log_group(ls, "check_ringid wait cluster %u cpg %llu:%llu",
+		log_group(ls, "check_ringid wait cluster %llu cpg %u:%llu",
 			  (unsigned long long)cluster_ringid_seq,
 			  ls->cpg_ringid.nodeid,
 			  (unsigned long long)ls->cpg_ringid.seq);
@@ -652,13 +652,19 @@ static void start_kernel(struct lockspace *ls)
 	}
 }
 
-static void stop_kernel(struct lockspace *ls, uint32_t seq)
+void cpg_stop_kernel(struct lockspace *ls)
 {
 	if (!ls->kernel_stopped) {
-		log_group(ls, "stop_kernel cg %u", seq);
+		log_group(ls, "%s", __func__);
 		set_sysfs_control(ls->name, 0);
 		ls->kernel_stopped = 1;
 	}
+}
+
+static void stop_kernel(struct lockspace *ls, uint32_t seq)
+{
+	log_group(ls, "%s seq %u", __func__, seq);
+	cpg_stop_kernel(ls);
 }
 
 /* the first condition is that the local lockspace is stopped which we
@@ -1238,8 +1244,8 @@ static int nodes_added(struct lockspace *ls)
 static void prepare_plocks(struct lockspace *ls)
 {
 	struct change *cg = list_first_entry(&ls->changes, struct change, list);
+	uint32_t plocks_data = 0;
 	struct member *memb;
-	uint32_t plocks_data;
 
 	if (!opt(enable_plock_ind) || ls->disable_plock)
 		return;

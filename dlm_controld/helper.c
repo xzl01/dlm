@@ -20,7 +20,6 @@
 #include <time.h>
 #include <stdarg.h>
 #include <signal.h>
-#include <ctype.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -28,9 +27,6 @@
 #include <grp.h>
 
 #include "dlm_daemon.h"
-
-#define MAX_AV_COUNT 32
-#define ONE_ARG_LEN 256
 
 
 static int _log_stderr;
@@ -290,11 +286,6 @@ int run_helper(int in_fd, int out_fd, int log_stderr)
 
 	_log_stderr = log_stderr;
 
-	if (running_count >= MAX_RUNNING) {
-		log_helper("too many running commands");
-		return -1;
-	}
-
 	rv = setgroups(0, NULL);
 	if (rv < 0)
 		log_helper("error clearing helper groups errno %i", errno);
@@ -338,6 +329,11 @@ int run_helper(int in_fd, int out_fd, int log_stderr)
 
 			if (hd->type == DLM_MSG_RUN_REQUEST) {
 				int cmd_pipe[2];
+
+				if (running_count >= MAX_RUNNING) {
+					log_helper("too many running commands");
+					exit(1);
+				}
 
 				/*
 				 * Child writes cmd_buf to cmd_pipe, parent reads

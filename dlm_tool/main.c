@@ -47,6 +47,8 @@
 #define OP_RUN_CANCEL			17
 #define OP_RUN_LIST			18
 #define OP_DUMP_RUN			19
+#define OP_RELOAD_CONFIG	20
+#define OP_SET_CONFIG		21
 
 static char *prog_name;
 static char *lsname;
@@ -65,7 +67,6 @@ static int summarize;
 char run_command[DLMC_RUN_COMMAND_LEN];
 char run_uuid[DLMC_RUN_UUID_LEN];
 
-#define MAX_LS 128
 #define MAX_NODES 128
 
 /* from linux/fs/dlm/dlm_internal.h */
@@ -89,7 +90,6 @@ char run_uuid[DLMC_RUN_UUID_LEN];
 #define DLM_MSG_PURGE           14
 
 
-struct dlmc_lockspace lss[MAX_LS];
 struct dlmc_node nodes[MAX_NODES];
 
 struct rinfo {
@@ -196,7 +196,8 @@ static void print_usage(void)
 	printf("dlm_tool [command] [options] [name]\n");
 	printf("\n");
 	printf("Commands:\n");
-	printf("ls, status, dump, dump_config, fence_ack\n");
+	printf("ls, status, dump, fence_ack\n");
+	printf("dump_config, reload_config, set_config\n");
 	printf("log_plock, plocks\n");
 	printf("join, leave, lockdebug\n");
 	printf("run, run_start, run_check, run_cancel, run_list\n");
@@ -363,6 +364,19 @@ static void decode_arguments(int argc, char **argv)
 			opt_ind = optind + 1;
 			need_lsname = 0;
 			break;
+		} else if (!strncmp(argv[optind], "reload_config", 13) &&
+			   (strlen(argv[optind]) == 13)) {
+			operation = OP_RELOAD_CONFIG;
+			opt_ind = optind + 1;
+			need_lsname = 0;
+			break;
+		} else if (!strncmp(argv[optind], "set_config", 10) &&
+			   (strlen(argv[optind]) == 10)) {
+			operation = OP_SET_CONFIG;
+			opt_ind = optind + 1;
+			need_lsname = 0;
+			need_command = 1;
+			break;
 		} else if (!strncmp(argv[optind], "plocks", 6) &&
 			   (strlen(argv[optind]) == 6)) {
 			operation = OP_PLOCKS;
@@ -445,12 +459,16 @@ static void decode_arguments(int argc, char **argv)
 	if (optind < argc - 1) {
 		if (need_lsname)
 			lsname = argv[opt_ind];
-		else if (need_uuid)
-			strncpy(run_uuid, argv[opt_ind], DLMC_RUN_UUID_LEN);
-		else if (need_command)
+		else if (need_uuid) {
+			strncpy(run_uuid, argv[opt_ind], DLMC_RUN_UUID_LEN - 1);
+			run_uuid[DLMC_RUN_UUID_LEN - 1] = '\0';
+		} else if (need_command)
 			goto copy_command;
 	} else if (need_lsname) {
-		fprintf(stderr, "lockspace name required\n");
+		if (operation == OP_FENCE_ACK)
+			fprintf(stderr, "nodeid required\n");
+		else
+			fprintf(stderr, "lockspace name required\n");
 		exit(EXIT_FAILURE);
 	} else if (need_command) {
 		fprintf(stderr, "command required\n");
@@ -470,8 +488,10 @@ static void decode_arguments(int argc, char **argv)
 			exit(EXIT_FAILURE);
 		}
 
-		strcat(run_command, argv[i]);
-		strcat(run_command, " ");
+		if (strlen(argv[i])) {
+			strcat(run_command, argv[i]);
+			strcat(run_command, " ");
+		}
 	}
 }
 
@@ -1065,6 +1085,10 @@ static void do_lockdebug(char *name)
 	memset(&summary, 0, sizeof(struct summary));
 	memset(&info, 0, sizeof(struct rinfo));
 
+	/* skip file header */
+	if (!fgets(line, LOCK_LINE_MAX, file))
+		goto done;
+
 	while (fgets(line, LOCK_LINE_MAX, file)) {
 
 		if (old)
@@ -1094,6 +1118,7 @@ static void do_lockdebug(char *name)
  raw:
 		printf("%s", line);
 	}
+ done:
 	count_rinfo(&summary, &info);
 	clear_rinfo(&info);
 	printf("\n");
@@ -1157,8 +1182,9 @@ static void do_lockdump(char *name)
 	}
 
 	/* skip the header on the first line */
-	if (!fgets(line, LOCK_LINE_MAX, file))
-		return;
+	if (!fgets(line, LOCK_LINE_MAX, file)) {
+		goto out;
+	}
 
 	while (fgets(line, LOCK_LINE_MAX, file)) {
 		rv = sscanf(line, "%x %d %x %u %llu %x %x %hhd %hhd %hhd %u %d %d",
@@ -1179,7 +1205,7 @@ static void do_lockdump(char *name)
 		if (rv != 13) {
 			fprintf(stderr, "invalid debugfs line %d: %s\n",
 				rv, line);
-			return;
+			goto out;
 		}
 
 		memset(r_name, 0, sizeof(r_name));
@@ -1209,6 +1235,7 @@ static void do_lockdump(char *name)
 			ownpid, nodeid, r_name);
 	}
 
+ out:
 	fclose(file);
 }
 
@@ -1382,19 +1409,23 @@ static void show_all_nodes(int count, struct dlmc_node *nodes_in)
 
 static void do_list(char *name)
 {
+	struct dlmc_lockspace *lss;
 	struct dlmc_lockspace *ls;
 	int node_count;
 	int ls_count;
 	int rv;
 	int i;
 
-	memset(lss, 0, sizeof(lss));
-
 	if (name) {
+		/* get only one specific lockspace by name */
 		ls_count = 1;
+		lss = malloc(sizeof(struct dlmc_lockspace));
+		if (!lss)
+			exit(EXIT_FAILURE);
+
 		rv = dlmc_lockspace_info(name, lss);
 	} else {
-		rv = dlmc_lockspaces(MAX_LS, &ls_count, lss);
+		rv = dlmc_lockspaces(&ls_count, &lss);
 	}
 
 	if (rv < 0)
@@ -1428,6 +1459,8 @@ static void do_list(char *name)
  next:
 		printf("\n");
 	}
+
+	free(lss);
 }
 
 static void do_deadlock_check(char *name)
@@ -1440,50 +1473,88 @@ static void do_fence_ack(char *name)
 	dlmc_fence_ack(name);
 }
 
-static void do_plocks(char *name)
+static int do_plocks(char *name)
 {
 	char buf[DLMC_DUMP_SIZE];
+	int rv, data;
 
 	memset(buf, 0, sizeof(buf));
 
-	dlmc_dump_plocks(name, buf);
+	rv = dlmc_dump_plocks(name, buf, &data);
+	if (rv)
+		return rv;
+	else if (data)
+		return data;
 
 	buf[DLMC_DUMP_SIZE-1] = '\0';
 
 	do_write(STDOUT_FILENO, buf, strlen(buf));
+
+	return 0;
 }
 
-static void do_dump(int op)
+static int do_dump(int op)
 {
+	int rv = -EOPNOTSUPP, data;
 	char buf[DLMC_DUMP_SIZE];
 
 	memset(buf, 0, sizeof(buf));
 
 	if (op == OP_DUMP)
-		dlmc_dump_debug(buf);
+		rv = dlmc_dump_debug(buf, &data);
 	else if (op == OP_DUMP_CONFIG)
-		dlmc_dump_config(buf);
+		rv = dlmc_dump_config(buf, &data);
 	else if (op == OP_DUMP_RUN)
-		dlmc_dump_run(buf);
+		rv = dlmc_dump_run(buf, &data);
+
+	if (rv)
+		return rv;
+	else if (data)
+		return data;
 
 	buf[DLMC_DUMP_SIZE-1] = '\0';
 
 	do_write(STDOUT_FILENO, buf, strlen(buf));
 	printf("\n");
+
+	return 0;
 }
 
-static void do_log_plock(void)
+static void do_reload_config(void)
+{
+	if (dlmc_reload_config() < 0)
+		printf("reload_config failed\n");
+	else
+		printf("reload_config done\n");
+}
+
+static void do_set_config(void)
+{
+	if (dlmc_set_config(run_command) < 0)
+		printf("set_config failed\n");
+	else
+		printf("set_config done\n");
+}
+
+static int do_log_plock(void)
 {
 	char buf[DLMC_DUMP_SIZE];
+	int rv, data;
 
 	memset(buf, 0, sizeof(buf));
 
-	dlmc_dump_log_plock(buf);
+	rv = dlmc_dump_log_plock(buf, &data);
+	if (rv)
+		return rv;
+	else if (data)
+		return data;
 
 	buf[DLMC_DUMP_SIZE-1] = '\0';
 
 	do_write(STDOUT_FILENO, buf, strlen(buf));
 	printf("\n");
+
+	return 0;
 }
 
 static int do_run(int op)
@@ -1534,6 +1605,7 @@ int main(int argc, char **argv)
 {
 	prog_name = argv[0];
 	decode_arguments(argc, argv);
+	int rv = 0;
 
 	switch (operation) {
 
@@ -1563,19 +1635,27 @@ int main(int argc, char **argv)
 		break;
 
 	case OP_DUMP:
-		do_dump(operation);
+		rv = do_dump(operation);
 		break;
 
 	case OP_DUMP_CONFIG:
-		do_dump(operation);
+		rv = do_dump(operation);
+		break;
+
+	case OP_RELOAD_CONFIG:
+		do_reload_config();
+		break;
+
+	case OP_SET_CONFIG:
+		do_set_config();
 		break;
 
 	case OP_LOG_PLOCK:
-		do_log_plock();
+		rv = do_log_plock();
 		break;
 
 	case OP_PLOCKS:
-		do_plocks(lsname);
+		rv = do_plocks(lsname);
 		break;
 
 	case OP_DEADLOCK_CHECK:
@@ -1604,9 +1684,15 @@ int main(int argc, char **argv)
 		break;
 
 	case OP_DUMP_RUN:
-		do_dump(operation);
+		rv = do_dump(operation);
 		break;
 	}
-	return 0;
+
+	if (rv < 0) {
+		fprintf(stderr, "failed: %s\n", strerror(-rv));
+		return EXIT_FAILURE;
+	}
+
+	return EXIT_SUCCESS;
 }
 

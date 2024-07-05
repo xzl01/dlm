@@ -35,6 +35,8 @@
 #define DLMC_CMD_RUN_START		15
 #define DLMC_CMD_RUN_CHECK		16
 #define DLMC_CMD_DUMP_RUN		17
+#define DLMC_CMD_RELOAD_CONFIG	18
+#define DLMC_CMD_SET_CONFIG		19
 
 struct dlmc_header {
 	unsigned int magic;

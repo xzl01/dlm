@@ -22,7 +22,7 @@ for descriptions and dlm_controld -h for defaults.
 
 Format:
 
-key=val
+setting=value
 
 Example:
 
@@ -34,31 +34,31 @@ protocol=tcp
 
 Options:
 
-log_debug
+daemon_debug(*)
+.br
+log_debug(*)
 .br
 protocol
 .br
-bind_all
-.br
 mark
 .br
-debug_logfile
+debug_logfile(*)
 .br
 enable_plock
 .br
-plock_debug
+plock_debug(*)
 .br
-plock_rate_limit
+plock_rate_limit(*)
 .br
 plock_ownership
 .br
-drop_resources_time
+drop_resources_time(*)
 .br
-drop_resources_count
+drop_resources_count(*)
 .br
-drop_resources_age
+drop_resources_age(*)
 .br
-post_join_delay
+post_join_delay(*)
 .br
 enable_fencing
 .br
@@ -66,14 +66,23 @@ enable_concurrent_fencing
 .br
 enable_startup_fencing
 .br
-enable_quorum_fencing
+enable_quorum_fencing(*)
 .br
-enable_quorum_lockspace
+enable_quorum_lockspace(*)
 .br
-repeat_failed_fencing
+repeat_failed_fencing(*)
 .br
 enable_helper
 .br
+
+Options with (*) can be reloaded, see Reload config.
+
+.SH Reload config
+
+Some dlm.conf settings can be changed while dlm_controld is running using
+dlm_tool reload_config.  Edit dlm.conf, adding, removing, commenting or
+changing values, then run dlm_tool reload_config to apply the changes in
+dlm_controld.  dlm_tool dump_config will show the new settings.
 
 .SH Fencing
 
@@ -402,7 +411,7 @@ pairs.
 .B mark
 The mark key can be used to set a specific mark value which is then used
 by the in-kernel DLM socket creation. This can be used to match for DLM
-specfic packets for e.g. routing.
+specific packets for e.g. routing.
 
 Example of setting a per socket value for nodeid 1 and a mark value
 of 42:

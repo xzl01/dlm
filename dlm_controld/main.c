@@ -12,7 +12,6 @@
 #include <pthread.h>
 #include <linux/netlink.h>
 #include <linux/genetlink.h>
-#include <linux/dlm_netlink.h>
 #include <uuid/uuid.h>
 
 #ifdef USE_SD_NOTIFY
@@ -45,6 +44,50 @@ struct client {
 	void *deadfn;
 	struct lockspace *ls;
 };
+
+enum {
+	Env_ACTION = 0,
+	Env_DEVPATH,
+	Env_SUBSYSTEM,
+	Env_LOCKSPACE,
+	Env_Last, /* Flag for end of vars */
+};
+
+static const char *uevent_vars[] = {
+	[Env_ACTION]		= "ACTION=",
+	[Env_DEVPATH]		= "DEVPATH=",
+	[Env_SUBSYSTEM]		= "SUBSYSTEM=",
+	[Env_LOCKSPACE]		= "LOCKSPACE=",
+};
+
+static void decode_uevent(const char *buf, unsigned len, const char *vars[],
+			  unsigned nvars, const char *vals[])
+{
+	const char *ptr;
+	unsigned int i;
+	int slen, vlen;
+
+	memset(vals, 0, sizeof(const char *) * nvars);
+
+	while (len > 0) {
+		ptr = buf;
+		slen = strlen(ptr);
+		buf += slen;
+		len -= slen;
+		buf++;
+		len--;
+
+		for (i = 0; i < nvars; i++) {
+			vlen = strlen(vars[i]);
+			if (vlen > slen)
+				continue;
+			if (memcmp(vars[i], ptr, vlen) != 0)
+				continue;
+			vals[i] = ptr + vlen;
+			break;
+		}
+	}
+}
 
 int do_read(int fd, void *buf, size_t count)
 {
@@ -537,7 +580,7 @@ static int check_run_operation(char *uuid_str, uint32_t flags, struct dlmc_run_c
 	return 0;
 }
 
-static struct lockspace *create_ls(char *name)
+static struct lockspace *create_ls(const char *name)
 {
 	struct lockspace *ls;
 
@@ -562,7 +605,7 @@ static struct lockspace *create_ls(char *name)
 	return ls;
 }
 
-struct lockspace *find_ls(char *name)
+struct lockspace *find_ls(const char *name)
 {
 	struct lockspace *ls;
 
@@ -627,38 +670,6 @@ static void fs_register_del(char *name)
 	}
 }
 
-#define MAXARGS 8
-
-static char *get_args(char *buf, int *argc, char **argv, char sep, int want)
-{
-	char *p = buf, *rp = NULL;
-	int i;
-
-	argv[0] = p;
-
-	for (i = 1; i < MAXARGS; i++) {
-		p = strchr(buf, sep);
-		if (!p)
-			break;
-		*p = '\0';
-
-		if (want == i) {
-			rp = p + 1;
-			break;
-		}
-
-		argv[i] = p + 1;
-		buf = p + 1;
-	}
-	*argc = i;
-
-	/* we ended by hitting \0, return the point following that */
-	if (!rp)
-		rp = strchr(buf, '\0') + 1;
-
-	return rp;
-}
-
 const char *dlm_mode_str(int mode)
 {
 	switch (mode) {
@@ -682,17 +693,16 @@ const char *dlm_mode_str(int mode)
 
 /* recv "online" (join) and "offline" (leave) messages from dlm via uevents */
 
-#define MAX_LINE_UEVENT 256
+#define MAX_LINE_UEVENT 4096
 
 static void process_uevent(int ci)
 {
+	const char *uevent_vals[Env_Last];
 	struct lockspace *ls;
 	char buf[MAX_LINE_UEVENT];
-	char *argv[MAXARGS], *act, *sys;
-	int rv, argc = 0;
+	int rv;
 
 	memset(buf, 0, sizeof(buf));
-	memset(argv, 0, sizeof(char *) * MAXARGS);
 
  retry_recv:
 	rv = recv(client[ci].fd, &buf, sizeof(buf), 0);
@@ -704,35 +714,38 @@ static void process_uevent(int ci)
 		return;
 	}
 
-	if (!strstr(buf, "dlm"))
+	decode_uevent(buf, rv, uevent_vars, Env_Last, uevent_vals);
+
+	if (!uevent_vals[Env_ACTION] ||
+	    !uevent_vals[Env_DEVPATH] ||
+	    !uevent_vals[Env_SUBSYSTEM] ||
+	    !uevent_vals[Env_LOCKSPACE]) {
+		log_debug("failed to validate uevent, action: %p, devpath: %p, subsystem: %p, lockspace: %p",
+			  uevent_vals[Env_ACTION], uevent_vals[Env_DEVPATH],
+			  uevent_vals[Env_SUBSYSTEM],
+			  uevent_vals[Env_LOCKSPACE]);
 		return;
+	}
 
-	log_debug("uevent: %s", buf);
-
-	get_args(buf, &argc, argv, '/', 4);
-	if (argc != 4)
-		log_error("uevent message has %d args", argc);
-	act = argv[0];
-	sys = argv[2];
-
-	if (!act || !sys || !argv[3])
+	if (strcmp(uevent_vals[Env_SUBSYSTEM], "dlm")) {
+		log_debug("uevent looks like dlm but came not from dlm subsystem");
 		return;
+	}
 
-	if (strncmp(sys, "dlm", 3))
-		return;
-
-	log_debug("kernel: %s %s", act, argv[3]);
+	log_debug("uevent action: %s, devpath: %s, devpath: %s, lockspace: %s",
+		  uevent_vals[Env_ACTION], uevent_vals[Env_SUBSYSTEM],
+		  uevent_vals[Env_DEVPATH], uevent_vals[Env_LOCKSPACE]);
 
 	rv = 0;
 
-	if (!strcmp(act, "online@")) {
-		ls = find_ls(argv[3]);
+	if (!strcmp(uevent_vals[Env_ACTION], "online")) {
+		ls = find_ls(uevent_vals[Env_LOCKSPACE]);
 		if (ls) {
 			rv = -EEXIST;
 			goto out;
 		}
 
-		ls = create_ls(argv[3]);
+		ls = create_ls(uevent_vals[Env_LOCKSPACE]);
 		if (!ls) {
 			rv = -ENOMEM;
 			goto out;
@@ -747,8 +760,8 @@ static void process_uevent(int ci)
 			goto out;
 		}
 
-	} else if (!strcmp(act, "offline@")) {
-		ls = find_ls(argv[3]);
+	} else if (!strcmp(uevent_vals[Env_ACTION], "offline")) {
+		ls = find_ls(uevent_vals[Env_LOCKSPACE]);
 		if (!ls) {
 			rv = -ENOENT;
 			goto out;
@@ -758,8 +771,10 @@ static void process_uevent(int ci)
 	}
  out:
 	if (rv < 0)
-		log_error("process_uevent %s error %d errno %d",
-			  act, rv, errno);
+		log_error("%s action: %s, devpath: %s, devpath: %s, lockspace: %s - error %d errno %d",
+			  __func__, uevent_vals[Env_ACTION],
+			  uevent_vals[Env_SUBSYSTEM], uevent_vals[Env_DEVPATH],
+			  uevent_vals[Env_LOCKSPACE], rv, errno);
 }
 
 static int setup_uevent(void)
@@ -919,7 +934,7 @@ static void copy_options(char *buf, int *len)
 {
 	struct dlm_option *o;
 	char tmp[256];
-	int i, ret, pos = 0;
+	int i, ret, pos = 0, l = 0;
 
 	for (i = 0; i < dlm_options_max; i++) {
 		o = &dlm_options[i];
@@ -927,9 +942,20 @@ static void copy_options(char *buf, int *len)
 		memset(tmp, 0, sizeof(tmp));
 
 		if (o->req_arg == req_arg_str)
-			snprintf(tmp, 255, "%s=%s\n", o->name, o->use_str);
+			l = snprintf(tmp, 240, "%s=%s", o->name, o->use_str);
+		else if (o->req_arg == req_arg_uint)
+			l = snprintf(tmp, 240, "%s=%u", o->name, o->use_uint);
 		else
-			snprintf(tmp, 255, "%s=%d\n", o->name, o->use_int);
+			l = snprintf(tmp, 240, "%s=%d", o->name, o->use_int);
+
+		if (o->dynamic_set)
+			snprintf(tmp + l, 15, " (set_config)\n");
+		else if (o->cli_set)
+			snprintf(tmp + l, 15, " (cli option)\n");
+		else if (o->file_set)
+			snprintf(tmp + l, 15, " (dlm.conf)\n");
+		else
+			snprintf(tmp + l, 15, "\n");
 
 		if (pos + strlen(tmp) >= LOG_DUMP_SIZE)
 			break;
@@ -1059,7 +1085,7 @@ static void query_node_info(int fd, char *name, int nodeid)
 		 (char *)&node, sizeof(node));
 }
 
-static void query_lockspaces(int fd, int max)
+static void query_lockspaces(int fd)
 {
 	int ls_count = 0;
 	struct dlmc_lockspace *lss = NULL;
@@ -1072,12 +1098,7 @@ static void query_lockspaces(int fd, int max)
 		goto out;
 	}
 
-	if (ls_count > max) {
-		result = -E2BIG;
-		ls_count = max;
-	} else {
-		result = ls_count;
-	}
+	result = ls_count;
  out:
 	do_reply(fd, DLMC_CMD_LOCKSPACES, NULL, result, 0,
 		 (char *)lss, ls_count * sizeof(struct dlmc_lockspace));
@@ -1230,6 +1251,15 @@ static void process_connection(int ci)
 		client_dead(ci);
 		break;
 #endif
+	case DLMC_CMD_RELOAD_CONFIG:
+		set_opt_file(1);
+		break;
+
+	case DLMC_CMD_SET_CONFIG:
+		if (extra_len)
+			set_opt_online(extra, extra_len);
+		break;
+
 	default:
 		log_error("process_connection %d unknown command %d",
 			  ci, h.command);
@@ -1355,7 +1385,7 @@ static void *process_queries(void *arg)
 			query_node_info(f, h.name, h.data);
 			break;
 		case DLMC_CMD_LOCKSPACES:
-			query_lockspaces(f, h.data);
+			query_lockspaces(f);
 			break;
 		case DLMC_CMD_LOCKSPACE_NODES:
 			query_lockspace_nodes(f, h.name, h.option, h.data);
@@ -1589,16 +1619,18 @@ static int loop(void)
 	close_plocks();
 	close_cpg_daemon();
 	clear_configfs();
-	close_logging();
 	close_cluster();
 	close_cluster_cfg();
 
 	list_for_each_entry(ls, &lockspaces, list)
 		log_error("abandoned lockspace %s", ls->name);
+
+	/* must be end */
+	close_logging();
 	return rv;
 }
 
-static int lockfile(const char *dir, const char *name)
+static int lockfile(const char *name)
 {
 	char path[PATH_MAX];
 	char buf[16];
@@ -1607,14 +1639,26 @@ static int lockfile(const char *dir, const char *name)
 	int fd, rv;
 
 	old_umask = umask(0022);
-	rv = mkdir(dir, 0775);
+	rv = mkdir(SYS_VARDIR, 0775);
+	if (rv < 0 && errno != EEXIST) {
+		umask(old_umask);
+		return rv;
+	}
+
+	rv = mkdir(SYS_RUNDIR, 0775);
+	if (rv < 0 && errno != EEXIST) {
+		umask(old_umask);
+		return rv;
+	}
+
+	rv = mkdir(RUNDIR, 0775);
 	if (rv < 0 && errno != EEXIST) {
 		umask(old_umask);
 		return rv;
 	}
 	umask(old_umask);
 
-	snprintf(path, PATH_MAX, "%s/%s", dir, name);
+	snprintf(path, PATH_MAX, "%s/%s", RUNDIR, name);
 
 	fd = open(path, O_CREAT|O_WRONLY|O_CLOEXEC, 0644);
 	if (fd < 0) {
@@ -1737,12 +1781,13 @@ static void print_usage(void)
 
 static void set_opt_default(int ind, const char *name, char letter, int arg_type,
 			    int default_int, const char *default_str,
-			    unsigned int default_uint, const char *desc)
+			    unsigned int default_uint, char reload, const char *desc)
 {
 	dlm_options[ind].name = name;
 	dlm_options[ind].letter = letter;
 	dlm_options[ind].req_arg = arg_type;
 	dlm_options[ind].desc = desc;
+	dlm_options[ind].reload = reload;
 	dlm_options[ind].default_int = default_int;
 	dlm_options[ind].default_str = default_str;
 	dlm_options[ind].default_uint = default_uint;
@@ -1754,142 +1799,132 @@ static void set_opt_default(int ind, const char *name, char letter, int arg_type
 static void set_opt_defaults(void)
 {
 	set_opt_default(daemon_debug_ind,
-			"daemon_debug", 'D', no_arg,
-			0, NULL, 0,
+			"daemon_debug", 'D', req_arg_bool,
+			0, NULL, 0, 1,
 			"enable debugging to stderr and don't fork");
 
 	set_opt_default(foreground_ind,
-			"foreground", '\0', no_arg,
-			0, NULL, 0,
+			"foreground", '\0', req_arg_bool,
+			0, NULL, 0, 0,
 			"don't fork");
 
 	set_opt_default(log_debug_ind,
-			"log_debug", 'K', no_arg,
-			0, NULL, 0,
+			"log_debug", 'K', req_arg_bool,
+			0, NULL, 0, 1,
 			"enable kernel dlm debugging messages");
-
-	set_opt_default(timewarn_ind,
-			"timewarn", '\0', req_arg_int,
-			0, NULL, 0,
-			""); /* do not advertise */
 
 	set_opt_default(protocol_ind,
 			"protocol", 'r', req_arg_str,
-			-1, "detect", 0,
+			-1, "detect", 0, 0,
 			"dlm kernel lowcomms protocol: tcp, sctp, detect");
 
 	set_opt_default(port_ind,
 			"port", 'R', req_arg_uint,
-			-1, NULL, 21064,
+			-1, NULL, 21064, 0,
 			"dlm kernel lowcomms protocol port");
-
-	set_opt_default(bind_all_ind,
-			"bind_all", '\0', req_arg_int,
-			0, NULL, 0,
-			""); /* do not advertise */
 
 	set_opt_default(mark_ind,
 			"mark", '\0', req_arg_uint,
-			0, NULL, 0,
+			0, NULL, 0, 0,
 			"set mark value for DLM if not explicit by nodeid specified");
 
 	set_opt_default(debug_logfile_ind,
-			"debug_logfile", 'L', no_arg,
-			0, NULL, 0,
+			"debug_logfile", 'L', req_arg_bool,
+			0, NULL, 0, 1,
 			"write debugging to log file");
 
 	set_opt_default(enable_fscontrol_ind,
 			"enable_fscontrol", '\0', req_arg_bool,
-			0, NULL, 0,
+			0, NULL, 0, 0,
 			""); /* do not advertise */
 
 	set_opt_default(enable_plock_ind,
 			"enable_plock", 'p', req_arg_bool,
-			1, NULL, 0,
+			1, NULL, 0, 0,
 			"enable/disable posix lock support for cluster fs");
 
 	set_opt_default(plock_debug_ind,
-			"plock_debug", 'P', no_arg,
-			0, NULL, 0,
+			"plock_debug", 'P', req_arg_bool,
+			0, NULL, 0, 1,
 			"enable plock debugging");
 
 	set_opt_default(plock_rate_limit_ind,
 			"plock_rate_limit", 'l', req_arg_int,
-			0, NULL, 0,
+			0, NULL, 0, 1,
 			"limit rate of plock operations (0 for none)");
 
 	set_opt_default(plock_ownership_ind,
 			"plock_ownership", 'o', req_arg_bool,
-			0, NULL, 0,
+			0, NULL, 0, 0,
 			"enable/disable plock ownership");
 
 	set_opt_default(drop_resources_time_ind,
 			"drop_resources_time", 't', req_arg_int,
-			10000, NULL, 0,
+			10000, NULL, 0, 1,
 			"plock ownership drop resources time (milliseconds)");
 
 	set_opt_default(drop_resources_count_ind,
 			"drop_resources_count", 'c', req_arg_int,
-			10, NULL, 0,
+			10, NULL, 0, 1,
 			"plock ownership drop resources count");
 
 	set_opt_default(drop_resources_age_ind,
 			"drop_resources_age", 'a', req_arg_int,
-			10000, NULL, 0,
+			10000, NULL, 0, 1,
 			"plock ownership drop resources age (milliseconds)");
 
 	set_opt_default(post_join_delay_ind,
 			"post_join_delay", 'j', req_arg_int,
-			30, NULL, 0,
+			30, NULL, 0, 1,
 			"seconds to delay fencing after cluster join");
 
 	set_opt_default(enable_fencing_ind,
 			"enable_fencing", 'f', req_arg_bool,
-			1, NULL, 0,
+			1, NULL, 0, 0,
 			"enable/disable fencing");
 
 	set_opt_default(enable_concurrent_fencing_ind,
 			"enable_concurrent_fencing", '\0', req_arg_bool,
-			0, NULL, 0,
+			0, NULL, 0, 0,
 			"enable/disable concurrent fencing");
 
 	set_opt_default(enable_startup_fencing_ind,
 			"enable_startup_fencing", 's', req_arg_bool,
-			1, NULL, 0,
+			1, NULL, 0, 0,
 			"enable/disable startup fencing");
 
 	set_opt_default(repeat_failed_fencing_ind,
 			"repeat_failed_fencing", '\0', req_arg_bool,
-			1, NULL, 0,
+			1, NULL, 0, 1,
 			"enable/disable retrying after fencing fails");
 
 	set_opt_default(enable_quorum_fencing_ind,
 			"enable_quorum_fencing", 'q', req_arg_bool,
-			1, NULL, 0,
+			1, NULL, 0, 1,
 			"enable/disable quorum requirement for fencing");
 
 	set_opt_default(enable_quorum_lockspace_ind,
 			"enable_quorum_lockspace", '\0', req_arg_bool,
-			1, NULL, 0,
+			1, NULL, 0, 1,
 			"enable/disable quorum requirement for lockspace operations");
 
 	set_opt_default(enable_helper_ind,
 			"enable_helper", '\0', req_arg_bool,
-			1, NULL, 0,
+			1, NULL, 0, 0,
 			"enable/disable helper process for running commands");
 
 	set_opt_default(help_ind,
 			"help", 'h', no_arg,
-			-1, NULL, 0,
+			-1, NULL, 0, 0,
 			"print this help, then exit");
 
 	set_opt_default(version_ind,
 			"version", 'V', no_arg,
-			-1, NULL, 0,
+			-1, NULL, 0, 0,
 			"Print program version information, then exit");
 }
 
-static int get_ind_name(char *s)
+int get_ind_name(char *s)
 {
 	char name[PATH_MAX];
 	char *p = s;
@@ -1936,11 +1971,12 @@ struct dlm_option *get_dlm_option(char *name)
 static void set_opt_cli(int argc, char **argv)
 {
 	struct dlm_option *o;
-	char *arg1, *p, *arg_str;
+	char *arg1, *p, *arg_str, *endptr;
+	char bool_str[] = "1";
 	char bundled_letters[8];
 	int b, blc = 0, blc_max = 8;
 	int debug_options = 0;
-	int i, ind;
+	int i, ind, bundled;
 
 	if (argc < 2)
 		return;
@@ -1984,20 +2020,26 @@ static void set_opt_cli(int argc, char **argv)
 		o = &dlm_options[ind];
 		o->cli_set++;
 
-		if (!o->req_arg) {
-			/* "-x" has same effect as "-x 1" */
-			o->cli_int = 1;
-			o->use_int = 1;
+		if (!o->req_arg || (o->req_arg == req_arg_bool)) {
+			bundled = 0;
 
-			/* save bundled, arg-less, single letters, e.g. -DKP */
+			/* current for no_arg type, there is not possible to have bundled options.
+			 * for req_arg_bool, bundled options, e.g. -DKP. all treat as "true".
+			 * below code save bundled, arg-less, single letters */
 			if ((p[0] == '-') && isalpha(p[1]) && (strlen(p) > 2)) {
 				for (b = 2; b < strlen(p) && blc < blc_max; b++) {
 					if (!isalpha(p[b]))
 						break;
 					bundled_letters[blc++] = p[b];
+					bundled = 1;
 				}
 			}
-			continue;
+			if (bundled) {
+				/* "-x" has same effect as "-x 1" */
+				o->cli_int = 1;
+				o->use_int = 1;
+				continue;
+			}
 		}
 
 		arg_str = NULL;
@@ -2012,16 +2054,30 @@ static void set_opt_cli(int argc, char **argv)
 
 		} else {
 			/* space separates arg from name or letter */
-			if (i >= argc) {
-				fprintf(stderr, "option %s no arg", p);
-				exit(EXIT_FAILURE);
+			if (o->req_arg == req_arg_bool) {
+				/* bool type treat empty arg as true */
+				if (i >= argc || argv[i][0] == '-')
+					arg_str = bool_str;
+				else
+					arg_str = argv[i++];
+			} else {
+				if (i >= argc) {
+					fprintf(stderr, "option %s no arg\n", p);
+					exit(EXIT_FAILURE);
+				}
+				arg_str = argv[i++];
 			}
-			arg_str = argv[i++];
 		}
 
 		if (!arg_str || arg_str[0] == '-' || arg_str[0] == '\0') {
-			fprintf(stderr, "option %s requires arg", p);
+			fprintf(stderr, "option %s requires arg\n", p);
 			exit(EXIT_FAILURE);
+		}
+		if ((o->req_arg != req_arg_str) && !strtol(arg_str, &endptr, 10)) {
+			if (endptr == arg_str) {
+				fprintf(stderr, "option %s requires digit number\n", p);
+				exit(EXIT_FAILURE);
+			}
 		}
 
 		if (o->req_arg == req_arg_str) {
@@ -2047,6 +2103,7 @@ static void set_opt_cli(int argc, char **argv)
 			fprintf(stderr, "unknown option char %c\n", bundled_letters[i]);
 			exit(EXIT_FAILURE);
 		}
+		/* bundled letter must be bool type, treat it with "true" value */
 		o = &dlm_options[ind];
 		o->cli_set++;
 		o->cli_int = 1;
@@ -2097,8 +2154,11 @@ int main(int argc, char **argv)
 	 * - explicit cli setting will override default,
 	 * - explicit file setting will override default
 	 * - explicit file setting will not override explicit cli setting
+	 *
+	 * "dlm reload_config" will trigger to reload config file, and
+	 * reload action also follows the rule: not override explicit
+	 * cli setting
 	 */
-
 	set_opt_defaults();
 	set_opt_cli(argc, argv);
 	set_opt_file(0);
@@ -2125,7 +2185,7 @@ int main(int argc, char **argv)
 
 	init_logging();
 
-	fd = lockfile(RUNDIR, RUN_FILE_NAME);
+	fd = lockfile(RUN_FILE_NAME);
 	if (fd < 0)
 		return 1;
 

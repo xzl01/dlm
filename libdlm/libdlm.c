@@ -807,8 +807,6 @@ static int ls_lock_v6(dlm_lshandle_t ls,
 
 	if (xid)
 		req->i.lock.xid = *xid;
-	if (timeout)
-		req->i.lock.timeout = *timeout;
 
 	if (flags & LKF_CONVERT) {
 		req->i.lock.namelen = 0;
@@ -1346,6 +1344,7 @@ static dlm_lshandle_t create_lockspace(const char *name, mode_t mode,
 
 dlm_lshandle_t dlm_new_lockspace(const char *name, mode_t mode, uint32_t flags)
 {
+	flags &= ~DLM_LSFL_TIMEWARN;
 	return create_lockspace(name, mode, flags);
 }
 

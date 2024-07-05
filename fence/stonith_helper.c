@@ -8,11 +8,12 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <syslog.h>
 #include <errno.h>
-#include <pacemaker/crm/stonith-ng.h>
+#include <crm/stonith-ng.h>
 
 int nodeid;
 uint64_t fail_time;
@@ -24,8 +25,7 @@ static int get_options(int argc, char *argv[])
 	char arg[MAX_ARG_LEN];
 	char key[MAX_ARG_LEN];
 	char val[MAX_ARG_LEN];
-	char c;
-	int rv;
+	int rv, c;
 
 	if (argc > 1) {
 		while ((c = getopt(argc, argv, "n:t:")) != -1) {

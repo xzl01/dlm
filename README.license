@@ -7,10 +7,13 @@ libdlm/libdlm_internal.h
 GPLv2
 
 dlm_controld/list.h (copied from linux kernel)
+dlm_controld/linux_helpers.h (various GPLv2 functions copied from linux kernel)
 
 GPLv2+
 
 dlm_controld/rbtree.c (copied from linux kernel)
 dlm_controld/rbtree.h (copied from linux kernel)
+dlm_controld/rbtree_augmented.h (copied from linux kernel)
+dlm_controld/rbtree_types.h (copied from linux kernel)
 all other original files
 

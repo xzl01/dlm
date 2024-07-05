@@ -80,17 +80,20 @@ struct dlmc_lockspace {
 
 #define DLMC_STATUS_VERBOSE	0x00000001
 
-int dlmc_dump_debug(char *buf);
-int dlmc_dump_config(char *buf);
-int dlmc_dump_run(char *buf);
-int dlmc_dump_log_plock(char *buf);
-int dlmc_dump_plocks(char *name, char *buf);
+int dlmc_dump_debug(char *buf, int *data);
+int dlmc_dump_config(char *buf, int *data);
+int dlmc_dump_run(char *buf, int *data);
+int dlmc_dump_log_plock(char *buf, int *data);
+int dlmc_dump_plocks(char *name, char *buf, int *data);
 int dlmc_lockspace_info(char *lsname, struct dlmc_lockspace *ls);
 int dlmc_node_info(char *lsname, int nodeid, struct dlmc_node *node);
-int dlmc_lockspaces(int max, int *count, struct dlmc_lockspace *lss);
+/* caller need to free *lss */
+int dlmc_lockspaces(int *count, struct dlmc_lockspace **lss);
 int dlmc_lockspace_nodes(char *lsname, int type, int max, int *count,
 			 struct dlmc_node *nodes);
 int dlmc_print_status(uint32_t flags);
+int dlmc_reload_config(void);
+int dlmc_set_config(char *command);
 
 #define DLMC_RESULT_REGISTER	1
 #define DLMC_RESULT_NOTIFIED	2

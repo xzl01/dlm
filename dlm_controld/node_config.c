@@ -58,8 +58,8 @@ int node_config_init(const char *path)
 			}
 			nc[nodeid].mark = mark;
 
-			log_debug("parsed node config id=%d mark=%" PRIu32,
-				  nodeid, mark);
+			log_debug("parsed node config id=%d mark=%llu",
+				  nodeid, (unsigned long long)mark);
 		}
 	}
 

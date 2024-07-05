@@ -174,7 +174,8 @@ void log_config(const struct cpg_name *group_name,
 
 	log_debug("%s conf %zu %zu %zu memb%s join%s left%s", group_name->value,
 		  member_list_entries, joined_list_entries, left_list_entries,
-		  m_buf, j_buf, l_buf);
+		  strlen(m_buf) ? m_buf : " 0", strlen(j_buf) ? j_buf : " 0",
+		  strlen(l_buf) ? l_buf : " 0");
 }
 
 void log_ringid(const char *name,
@@ -1885,6 +1886,7 @@ static void send_protocol(struct protocol *proto)
 	protocol_out(pr);
 
 	_send_message(cpg_handle_daemon, buf, len, DLM_MSG_PROTOCOL);
+	free(buf);
 }
 
 int set_protocol(void)
@@ -2078,7 +2080,7 @@ int receive_run_reply(struct dlm_header *hd, int len)
 		return 0;
 
 	if (len != sizeof(struct run_reply)) {
-		log_debug("receive_run_reply %s bad len %s expect %d",
+		log_debug("receive_run_reply %s bad len %d expect %zu",
 			  rep->uuid, len, sizeof(struct run_reply));
 		run->info.reply_count++;
 		run->info.need_replies--;
@@ -2335,7 +2337,7 @@ static void confchg_cb_daemon(cpg_handle_t handle,
 				   valid proto from it (is_clean_daemon_member) */
 				log_error("daemon joined %d needs fencing", node->nodeid);
 			} else {
-				log_debug("daemon joined %d");
+				log_debug("daemon joined %d", node->nodeid);
 			}
 		} else {
 			if (!node->daemon_member)
@@ -2525,6 +2527,15 @@ int setup_cpg_daemon(void)
 	return -1;
 }
 
+static void stop_lockspaces(void)
+{
+	struct lockspace *ls;
+
+	list_for_each_entry(ls, &lockspaces, list) {
+		cpg_stop_kernel(ls);
+	}
+}
+
 void close_cpg_daemon(void)
 {
 	struct lockspace *ls;
@@ -2532,8 +2543,11 @@ void close_cpg_daemon(void)
 	struct cpg_name name;
 	int i = 0;
 
-	if (!cpg_handle_daemon)
+	if (!cpg_handle_daemon) {
+		stop_lockspaces();
 		return;
+	}
+
 	if (cluster_down)
 		goto fin;
 
@@ -2554,6 +2568,8 @@ void close_cpg_daemon(void)
 		log_error("daemon cpg_leave error %d", error);
  fin:
 	list_for_each_entry(ls, &lockspaces, list) {
+		/* stop kernel ls lock activity before configfs cleanup */
+		cpg_stop_kernel(ls);
 		if (ls->cpg_handle)
 			cpg_finalize(ls->cpg_handle);
 	}

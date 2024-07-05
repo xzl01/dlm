@@ -10,15 +10,15 @@ Subject: Use CPPFLAGS from the environment
  4 files changed, 6 insertions(+), 6 deletions(-)
 
 diff --git a/dlm_controld/Makefile b/dlm_controld/Makefile
-index fbc8926..35282e6 100644
+index 328a64b..5346f8b 100644
 --- a/dlm_controld/Makefile
 +++ b/dlm_controld/Makefile
-@@ -63,10 +63,10 @@ endif
- all: $(LIB_TARGET) $(BIN_TARGET) $(LIB_PC)
- 
- $(BIN_TARGET): $(BIN_SOURCE)
--	$(CC) $(BIN_SOURCE) $(BIN_CFLAGS) $(BIN_LDFLAGS) -o $@ -L.
-+	$(CC) $(CPPFLAGS) $(BIN_SOURCE) $(BIN_CFLAGS) $(BIN_LDFLAGS) -o $@ -L.
+@@ -91,10 +91,10 @@ endif
+ ifneq ($(SYSTEMD_LDFLAGS_STATUS),0)
+ 	$(error "Failed to call pkg-config for systemd ldflags: $(SYSTEMD_LDFLAGS)")
+ endif
+-	$(CC) $(BIN_SOURCE) $(BIN_CFLAGS) $(CPG_CFLAGS) $(SYSTEMD_CFLAGS) $(BIN_LDFLAGS) $(CPG_LDFLAGS) $(SYSTEMD_LDFLAGS) -o $@ -L.
++	$(CC) $(CPPFLAGS) $(BIN_SOURCE) $(BIN_CFLAGS) $(CPG_CFLAGS) $(SYSTEMD_CFLAGS) $(BIN_LDFLAGS) $(CPG_LDFLAGS) $(SYSTEMD_LDFLAGS) -o $@ -L.
  
  $(LIB_TARGET): $(LIB_SOURCE)
 -	$(CC) $^ $(LIB_CFLAGS) $(LIB_LDFLAGS) -shared -o $@ -Wl,-soname=$(LIB_SMAJOR)
@@ -27,7 +27,7 @@ index fbc8926..35282e6 100644
  	ln -sf $(LIB_TARGET) $(LIB_SMAJOR)
  
 diff --git a/dlm_tool/Makefile b/dlm_tool/Makefile
-index 80d7725..a9b3be0 100644
+index 1c3d61d..34907c0 100644
 --- a/dlm_tool/Makefile
 +++ b/dlm_tool/Makefile
 @@ -27,7 +27,7 @@ LDFLAGS += -lpthread -ldlm -ldlmcontrol
@@ -40,23 +40,23 @@ index 80d7725..a9b3be0 100644
  clean:
  	rm -f *.o *.so *.so.* $(BIN_TARGET)
 diff --git a/fence/Makefile b/fence/Makefile
-index b927879..d4a3c09 100644
+index 263657e..c55bb02 100644
 --- a/fence/Makefile
 +++ b/fence/Makefile
-@@ -28,7 +28,7 @@ LDFLAGS += -ldl
- all: $(BIN_TARGET)
- 
- $(BIN_TARGET): $(BIN_SOURCE)
--	$(CC) $(BIN_SOURCE) $(CFLAGS) $(LDFLAGS) -o $@ -L.
-+	$(CC) $(CPPFLAGS) $(BIN_SOURCE) $(CFLAGS) $(LDFLAGS) -o $@ -L.
+@@ -35,7 +35,7 @@ $(BIN_TARGET): $(BIN_SOURCE)
+ ifneq ($(PACEMAKER_CFLAGS_STATUS),0)
+ 	$(error "Failed to call pkg-config for pacemaker cflags: $(PACEMAKER_CFLAGS)")
+ endif
+-	$(CC) $(BIN_SOURCE) $(CFLAGS) $(PACEMAKER_CFLAGS) $(LDFLAGS) -o $@ -L.
++	$(CC) $(CPPFLAGS) $(BIN_SOURCE) $(CFLAGS) $(PACEMAKER_CFLAGS) $(LDFLAGS) -o $@ -L.
  
  clean:
  	rm -f *.o *.so *.so.* $(BIN_TARGET)
 diff --git a/libdlm/Makefile b/libdlm/Makefile
-index ab32761..21addf8 100644
+index 918fb46..19fa3e0 100644
 --- a/libdlm/Makefile
 +++ b/libdlm/Makefile
-@@ -90,10 +90,10 @@ LLT_LDFLAGS += $(LDFLAGS)
+@@ -89,10 +89,10 @@ LLT_LDFLAGS += $(LDFLAGS) -Wl,-z,now
  all: $(LIB_TARGET) $(LLT_TARGET) $(LIB_PC) $(LLT_PC)
  
  $(LIB_O): $(SOURCE) 

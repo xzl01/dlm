@@ -25,6 +25,7 @@
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <stdio.h>
+#include <ctype.h>
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
@@ -65,8 +66,12 @@
 
 /* TODO: get CONFDIR, LOGDIR, RUNDIR from build */
 
-#define RUNDIR                   "/var/run/dlm_controld"
-#define LOGDIR                   "/var/log/dlm_controld"
+#define SYS_VARDIR              "/var"
+#define SYS_RUNDIR              SYS_VARDIR "/run"
+#define SYS_LOGDIR              SYS_VARDIR "/log"
+
+#define RUNDIR                  SYS_RUNDIR "/dlm_controld"
+#define LOGDIR                  SYS_LOGDIR "/dlm_controld"
 #define CONFDIR                  "/etc/dlm"
 
 #define RUN_FILE_NAME            "dlm_controld.pid"
@@ -97,11 +102,9 @@ enum {
         daemon_debug_ind = 0,
         foreground_ind,
         log_debug_ind,
-        timewarn_ind,
         protocol_ind,
         port_ind,
         debug_logfile_ind,
-	bind_all_ind,
         mark_ind,
         enable_fscontrol_ind,
         enable_plock_ind,
@@ -128,6 +131,8 @@ struct dlm_option {
 	const char *name;
 	char letter;
 	int req_arg;
+	char reload;
+	char dynamic;
 	const char *desc;
 
 	int use_int;
@@ -147,6 +152,11 @@ struct dlm_option {
 	int file_int;
 	char *file_str;
 	unsigned int file_uint;
+
+	int dynamic_set;
+	int dynamic_int;
+	char *dynamic_str;
+	unsigned int dynamic_uint;
 };
 
 EXTERN struct dlm_option dlm_options[dlm_options_max];
@@ -205,7 +215,8 @@ EXTERN struct list_head run_ops;
 #define LOG_PLOCK 0x00010000
 #define LOG_NONE  0x00001111
 
-void log_level(char *name_in, uint32_t level_in, const char *fmt, ...);
+__attribute__ (( format( printf, 3, 4 ) ))
+void log_level(const char *name_in, uint32_t level_in, const char *fmt, ...);
 
 #define log_error(fmt, args...) log_level(NULL, LOG_ERR, fmt, ##args)
 #define log_debug(fmt, args...) log_level(NULL, LOG_DEBUG, fmt, ##args)
@@ -323,6 +334,9 @@ struct lockspace {
 
 #define RUN_COMMAND_LEN DLMC_RUN_COMMAND_LEN /* 1024 */
 
+#define MAX_AV_COUNT 32
+#define ONE_ARG_LEN 256
+
 struct run_info {
 	int dest_nodeid;
 	int start_nodeid;
@@ -379,11 +393,13 @@ int setup_configfs_members(void);
 int check_uncontrolled_lockspaces(void);
 int setup_misc_devices(void);
 int path_exists(const char *path);
+int set_configfs_opt(const char *name, char *str, int num);
 
 /* config.c */
 void set_opt_file(int update);
 int get_weight(struct lockspace *ls, int nodeid);
 void setup_lockspace_config(struct lockspace *ls);
+void set_opt_online(char *cmd_str, int cmd_len);
 
 /* cpg.c */
 void process_lockspace_changes(void);
@@ -397,6 +413,7 @@ int set_lockspaces(int *count, struct dlmc_lockspace **lss_out);
 int set_lockspace_nodes(struct lockspace *ls, int option, int *node_count,
 			struct dlmc_node **nodes_out);
 int set_fs_notified(struct lockspace *ls, int nodeid);
+void cpg_stop_kernel(struct lockspace *ls);
 
 /* daemon_cpg.c */
 void init_daemon(void);
@@ -462,11 +479,12 @@ int client_add(int fd, void (*workfn)(int ci), void (*deadfn)(int ci));
 int client_fd(int ci);
 void client_ignore(int ci, int fd);
 void client_back(int ci, int fd);
-struct lockspace *find_ls(char *name);
+struct lockspace *find_ls(const char *name);
 struct lockspace *find_ls_id(uint32_t id);
 const char *dlm_mode_str(int mode);
 void cluster_dead(int ci);
 struct dlm_option *get_dlm_option(char *name);
+int get_ind_name(char *s);
 struct run *find_run(char *uuid_str);
 void clear_run(struct run *run);
 void send_helper_run_request(struct run_request *req);
@@ -518,6 +536,7 @@ void init_logging(void);
 void close_logging(void);
 void copy_log_dump(char *buf, int *len);
 void copy_log_dump_plock(char *buf, int *len);
+void set_logfile_priority(void);
 
 /* crc.c */
 uint32_t cpgname_to_crc(const char *data, int len);

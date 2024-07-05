@@ -25,7 +25,8 @@ Copyright: 1999  Andrea Arcangeli <andrea@suse.de>
 License: GPL-2+
 
 Files: debian/*
-Copyright: 2015-2019  Ferenc Wágner <wferi@debian.org>
+Copyright: 2015-2022  Ferenc Wágner <wferi@debian.org>
+           2018-2022  Valentin Vidic <vvidic@debian.org>
 License: GPL-2+
 
 License: GPL-2

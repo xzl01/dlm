@@ -1,0 +1,6 @@
+In this directory are some ebpf tracing examples. It requires bcc toolchain
+(usually known as bcc package name) and the python bcc module (usually known
+as python3-bcc package name).
+
+Also the current kernel headers need to be available or activate
+CONFIG_IKHEADERS in your kernel configuration.

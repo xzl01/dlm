@@ -692,25 +692,6 @@ skip_non_required:
 		return -1;
 	}
 	close(fd);
-
-	if (opt(bind_all_ind)) {
-		memset(path, 0, PATH_MAX);
-		snprintf(path, PATH_MAX, "%s/%d/bind_all", COMMS_DIR, nodeid);
-
-		fd = open(path, O_WRONLY);
-		if (fd < 0) {
-			log_error("%s: open failed: %d", path, errno);
-			return -1;
-		}
-
-		rv = do_write(fd, (void *)"1", strlen("1"));
-		if (rv < 0) {
-			log_error("%s: write failed: %d", path, errno);
-			close(fd);
-			return -1;
-		}
-		close(fd);
-	}
  out:
 	return 0;
 }
@@ -764,6 +745,11 @@ static int set_configfs_cluster(const char *name, char *str, int num)
 	close(fd);
 	log_debug("set %s %s", name, wbuf);
 	return 0;
+}
+
+int set_configfs_opt(const char *name, char *str, int num)
+{
+	return set_configfs_cluster(name, str, num);
 }
 
 #define NET_RMEM_DEFAULT 4194304
@@ -876,10 +862,6 @@ int setup_configfs_options(void)
 	if (dlm_options[log_debug_ind].cli_set ||
 	    dlm_options[log_debug_ind].file_set)
 		set_configfs_cluster("log_debug", NULL, opt(log_debug_ind));
-
-	if (dlm_options[timewarn_ind].cli_set ||
-	    dlm_options[timewarn_ind].file_set)
-		set_configfs_cluster("timewarn_cs", NULL, opt(timewarn_ind));
 
 	if (dlm_options[port_ind].cli_set ||
 	    dlm_options[port_ind].file_set)

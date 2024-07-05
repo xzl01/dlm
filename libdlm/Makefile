@@ -78,14 +78,13 @@ CFLAGS += -D_GNU_SOURCE -O2 -ggdb \
 	-fexceptions \
 	-fasynchronous-unwind-tables \
 	-fdiagnostics-show-option \
-	-fPIC \
-	-Wl,-z,now
+	-fPIC
 
 LIB_CFLAGS += $(CFLAGS) -D_REENTRANT
 LLT_CFLAGS += $(CFLAGS)
 
-LIB_LDFLAGS += $(LDFLAGS) -lpthread
-LLT_LDFLAGS += $(LDFLAGS)
+LIB_LDFLAGS += $(LDFLAGS) -lpthread -Wl,-z,now
+LLT_LDFLAGS += $(LDFLAGS) -Wl,-z,now
 
 all: $(LIB_TARGET) $(LLT_TARGET) $(LIB_PC) $(LLT_PC)
 
@@ -109,7 +108,7 @@ $(LIB_PC): $(LIB_PCIN)
 	cat $(LIB_PCIN) | sed -e 's#@PREFIX@#$(PREFIX)#g;s#@LIBDIR@#$(LIBDIR)#g' > $@
 
 $(LLT_PC): $(LLT_PCIN)
-	cat $(LIB_PCIN) | sed -e 's#@PREFIX@#$(PREFIX)#g;s#@LIBDIR@#$(LIBDIR)#g' > $@
+	cat $(LLT_PCIN) | sed -e 's#@PREFIX@#$(PREFIX)#g;s#@LIBDIR@#$(LIBDIR)#g' > $@
 
 clean:
 	rm -f *.o *.so *.so.* *.a *.pc

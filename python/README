@@ -1,0 +1,7 @@
+This directory contains python bindings to libdlm and short written tests in python to test dlm functionality.
+NOTE: the bindings are still experimental and only used for testing now.
+
+Future work:
+	- look into pytest
+	- add ebpf examples
+	- look into MPI for barrier()

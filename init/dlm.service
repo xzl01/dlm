@@ -2,6 +2,7 @@
 Description=dlm control daemon
 Requires=corosync.service sys-kernel-config.mount
 After=corosync.service sys-kernel-config.mount
+Documentation=man:dlm_controld man:dlm.conf man:dlm_stonith
 
 [Service]
 OOMScoreAdjust=-1000

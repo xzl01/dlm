@@ -1,0 +1,60 @@
+#!/bin/env python3
+
+from signal import signal, SIGINT
+from dlm import Lockspace
+import argparse
+import logging
+import time
+
+parser = argparse.ArgumentParser()
+
+parser.add_argument('-l', '--lock',
+		    action='store_true',
+		    help='do lock activity between ls start/stop')
+parser.add_argument('-w', '--wait',
+		    help='wait time for contention',
+		    type=int, default=1)
+parser.add_argument("-d", "--debug", default="info",
+		    help=("logging debug level"),
+		    choices=["debug", "info", "warning"])
+
+args = parser.parse_args()
+
+debug_levels = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING}
+debug_level = debug_levels[args.debug.lower()]
+
+logging.basicConfig(level=debug_level, format="%(asctime)s:%(levelname)s: %(message)s")
+
+def handler(signal, frame):
+	global end
+	end = True
+
+signal(SIGINT, handler)
+end = False
+while not end:
+	ls = Lockspace()
+	lsname = ls.get_name()
+	logging.info("lockspace {} created".format(lsname))
+
+	if args.lock:
+		lock = ls.create_lock("fooobaar")
+		lockname = lock.get_name()
+		logging.info("lock {} created".format(lockname))
+
+		lock.lock_wait()
+		logging.info("lock {} lock()".format(lockname))
+
+		#contention
+		logging.info("lock {} wait for {} secs".format(lockname, args.wait))
+		time.sleep(args.wait)
+
+		lock.unlock_wait()
+		logging.info("lock {} unlock()".format(lockname))
+
+		del lock
+		logging.info("lock {} removed".format(lockname))
+
+	del ls
+	logging.info("lockspace {} removed".format(lsname))
+
+# vim: tabstop=8 softtabstop=8 shiftwidth=8 noexpandtab

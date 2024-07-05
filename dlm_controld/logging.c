@@ -14,18 +14,49 @@ static int logfile_priority;
 static char logfile[PATH_MAX];
 static FILE *logfile_fp;
 
+/* logfile_priority is the only one of these options that
+   can be controlled from command line, environment variable
+   and dynamic setting.
+ */
+void set_logfile_priority(void)
+{
+	if (opt(debug_logfile_ind))
+		logfile_priority = LOG_DEBUG;
+	else
+		logfile_priority = DEFAULT_LOGFILE_PRIORITY;
+}
+
 void init_logging(void)
 {
+	mode_t old_umask;
+	int rv;
+
 	syslog_facility = DEFAULT_SYSLOG_FACILITY;
 	syslog_priority = DEFAULT_SYSLOG_PRIORITY;
 	logfile_priority = DEFAULT_LOGFILE_PRIORITY;
 	strcpy(logfile, DEFAULT_LOGFILE);
 
-	/* logfile_priority is the only one of these options that
-	   can be controlled from command line or environment variable */
+	set_logfile_priority();
 
-	if (opt(debug_logfile_ind))
-		logfile_priority = LOG_DEBUG;
+	old_umask = umask(0077);
+	rv = mkdir(SYS_VARDIR, 0700);
+	if (rv < 0 && errno != EEXIST) {
+		umask(old_umask);
+		goto skip_logfile;
+	}
+
+	rv = mkdir(SYS_LOGDIR, 0700);
+	if (rv < 0 && errno != EEXIST) {
+		umask(old_umask);
+		goto skip_logfile;
+	}
+
+	rv = mkdir(LOGDIR, 0700);
+	if (rv < 0 && errno != EEXIST) {
+		umask(old_umask);
+		goto skip_logfile;
+	}
+	umask(old_umask);
 
 	if (logfile[0]) {
 		logfile_fp = fopen(logfile, "a+");
@@ -35,6 +66,7 @@ void init_logging(void)
 		}
 	}
 
+skip_logfile:
 	openlog(DAEMON_NAME, LOG_CONS | LOG_PID, syslog_facility);
 }
 
@@ -119,7 +151,7 @@ static void log_save_str(int len, char *log_buf, unsigned int *point,
 	*wrap = w;
 }
 
-void log_level(char *name_in, uint32_t level_in, const char *fmt, ...)
+void log_level(const char *name_in, uint32_t level_in, const char *fmt, ...)
 {
 	va_list ap;
 	char name[NAME_ID_SIZE + 2];

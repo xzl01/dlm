@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <string.h>
 #include <errno.h>
 #include <time.h>
 #include <sys/types.h>
@@ -108,7 +109,7 @@ static void init_header(struct dlmc_header *h, int cmd, char *name,
 
 static char copy_buf[DLMC_DUMP_SIZE];
 
-static int do_dump(int cmd, char *name, char *buf)
+static int do_dump(int cmd, char *name, char *buf, int *data)
 {
 	struct dlmc_header h;
 	int fd, rv, len;
@@ -116,6 +117,8 @@ static int do_dump(int cmd, char *name, char *buf)
 	memset(copy_buf, 0, DLMC_DUMP_SIZE);
 
 	init_header(&h, cmd, name, 0);
+
+	*data = 0;
 
 	fd = do_connect(DLMC_QUERY_SOCK_PATH);
 	if (fd < 0) {
@@ -133,6 +136,7 @@ static int do_dump(int cmd, char *name, char *buf)
 	if (rv < 0)
 		goto out_close;
 
+	*data = h.data;
 	len = h.len - sizeof(h);
 
 	if (len <= 0 || len > DLMC_DUMP_SIZE)
@@ -149,29 +153,84 @@ static int do_dump(int cmd, char *name, char *buf)
 	return rv;
 }
 
-int dlmc_dump_debug(char *buf)
+int dlmc_dump_debug(char *buf, int *data)
 {
-	return do_dump(DLMC_CMD_DUMP_DEBUG, NULL, buf);
+	return do_dump(DLMC_CMD_DUMP_DEBUG, NULL, buf, data);
 }
 
-int dlmc_dump_config(char *buf)
+int dlmc_dump_config(char *buf, int *data)
 {
-	return do_dump(DLMC_CMD_DUMP_CONFIG, NULL, buf);
+	return do_dump(DLMC_CMD_DUMP_CONFIG, NULL, buf, data);
 }
 
-int dlmc_dump_log_plock(char *buf)
+int dlmc_dump_log_plock(char *buf, int *data)
 {
-	return do_dump(DLMC_CMD_DUMP_LOG_PLOCK, NULL, buf);
+	return do_dump(DLMC_CMD_DUMP_LOG_PLOCK, NULL, buf, data);
 }
 
-int dlmc_dump_plocks(char *name, char *buf)
+int dlmc_dump_plocks(char *name, char *buf, int *data)
 {
-	return do_dump(DLMC_CMD_DUMP_PLOCKS, name, buf);
+	return do_dump(DLMC_CMD_DUMP_PLOCKS, name, buf, data);
 }
 
-int dlmc_dump_run(char *buf)
+int dlmc_dump_run(char *buf, int *data)
 {
-	return do_dump(DLMC_CMD_DUMP_RUN, NULL, buf);
+	return do_dump(DLMC_CMD_DUMP_RUN, NULL, buf, data);
+}
+
+int dlmc_reload_config(void)
+{
+	struct dlmc_header h;
+	int fd, rv;
+
+	init_header(&h, DLMC_CMD_RELOAD_CONFIG, NULL, 0);
+
+	fd = do_connect(DLMC_SOCK_PATH);
+	if (fd < 0) {
+		rv = fd;
+		goto out;
+	}
+
+	rv = do_write(fd, &h, sizeof(h));
+	close(fd);
+out:
+	return rv;
+}
+
+int dlmc_set_config(char *command)
+{
+	struct dlmc_header h;
+	char *cmdbuf;
+	int fd, rv;
+
+	cmdbuf = malloc(DLMC_RUN_COMMAND_LEN);
+	if (!cmdbuf)
+		return -1;
+
+	memset(cmdbuf, 0, DLMC_RUN_COMMAND_LEN);
+	strncpy(cmdbuf, command, DLMC_RUN_COMMAND_LEN-1);
+
+	init_header(&h, DLMC_CMD_SET_CONFIG, NULL, DLMC_RUN_COMMAND_LEN);
+
+	fd = do_connect(DLMC_SOCK_PATH);
+	if (fd < 0) {
+		rv = fd;
+		goto out;
+	}
+
+	rv = do_write(fd, &h, sizeof(h));
+	if (rv < 0)
+		goto out_close;
+
+	rv = do_write(fd, cmdbuf, DLMC_RUN_COMMAND_LEN);
+	if (rv < 0)
+		goto out_close;
+
+out_close:
+	close(fd);
+out:
+	free(cmdbuf);
+	return rv;
 }
 
 static int nodeid_compare(const void *va, const void *vb)
@@ -210,9 +269,12 @@ static unsigned int kv(char *str, const char *k)
 	if (!p)
 		return 0;
 
-	p = strstr(p, "=") + 1;
+	p = strstr(p, "=");
 	if (!p)
 		return 0;
+
+	/* move pointer after '=' */
+	p++;
 
 	memset(valstr, 0, 64);
 
@@ -240,9 +302,12 @@ static char *ks(char *str, const char *k)
 	if (!p)
 		return 0;
 
-	p = strstr(p, "=") + 1;
+	p = strstr(p, "=");
 	if (!p)
 		return 0;
+
+	/* move pointer after '=' */
+	p++;
 
 	memset(valstr, 0, 64);
 
@@ -612,24 +677,11 @@ int dlmc_lockspace_info(char *name, struct dlmc_lockspace *lockspace)
 	return rv;
 }
 
-int dlmc_lockspaces(int max, int *count, struct dlmc_lockspace *lss)
+int dlmc_lockspaces(int *count, struct dlmc_lockspace **lss)
 {
-	struct dlmc_header h, *rh;
-	char *reply;
+	struct dlmc_header h;
 	int reply_len;
-	int fd, rv, result, ls_count;
-
-	init_header(&h, DLMC_CMD_LOCKSPACES, NULL, 0);
-	h.data = max;
-
-	reply_len = sizeof(struct dlmc_header) +
-		    (max * sizeof(struct dlmc_lockspace));
-	reply = malloc(reply_len);
-	if (!reply) {
-		rv = -1;
-		goto out;
-	}
-	memset(reply, 0, reply_len);
+	int fd, rv, result;
 
 	fd = do_connect(DLMC_QUERY_SOCK_PATH);
 	if (fd < 0) {
@@ -637,31 +689,40 @@ int dlmc_lockspaces(int max, int *count, struct dlmc_lockspace *lss)
 		goto out;
 	}
 
+	init_header(&h, DLMC_CMD_LOCKSPACES, NULL, 0);
+
 	rv = do_write(fd, &h, sizeof(h));
 	if (rv < 0)
 		goto out_close;
 
-	/* won't usually get back the full reply_len */
-	do_read(fd, reply, reply_len);
+	rv = do_read(fd, &h, sizeof(h));
+	if (rv <0)
+		goto out_close;
 
-	rh = (struct dlmc_header *)reply;
-	result = rh->data;
-	if (result < 0 && result != -E2BIG) {
+	result = h.data;
+	if (result < 0) {
 		rv = result;
 		goto out_close;
 	}
 
-	if (result == -E2BIG) {
-		*count = -E2BIG;
-		ls_count = max;
-	} else {
-		*count = result;
-		ls_count = result;
+	*count = result;
+
+	reply_len = h.len - sizeof(struct dlmc_header);
+	*lss = malloc(reply_len);
+	if (!*lss) {
+		rv = -1;
+		goto out;
 	}
+	memset(*lss, 0, reply_len);
+
+	rv = do_read(fd, *lss, reply_len);
+	if (rv < 0) {
+		free(*lss);
+		goto out;
+	}
+
 	rv = 0;
 
-	memcpy(lss, (char *)reply + sizeof(struct dlmc_header),
-	       ls_count * sizeof(struct dlmc_lockspace));
  out_close:
 	close(fd);
  out:

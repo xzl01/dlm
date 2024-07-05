@@ -15,12 +15,12 @@ CFLAGS += -D_GNU_SOURCE -O2 -ggdb \
 	-Wno-sign-compare -Wno-unused-parameter -Wp,-D_FORTIFY_SOURCE=2 \
 	-fexceptions -fasynchronous-unwind-tables -fdiagnostics-show-option \
 	-Wp,-D_GLIBCXX_ASSERTIONS -fstack-protector-strong \
-	-fstack-clash-protection -Wl,-z,now
+	-fstack-clash-protection
 
 CFLAGS += -fPIE -DPIE
 CFLAGS += -I../include -I../libdlm -I../dlm_controld
 
-LDFLAGS += -Wl,-z,relro -pie
+LDFLAGS += -Wl,-z,relro -Wl,-z,now -pie
 LDFLAGS += -L../libdlm -L../dlm_controld
 LDFLAGS += -lpthread -ldlm -ldlmcontrol
 

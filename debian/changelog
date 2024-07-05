@@ -1,3 +1,65 @@
+dlm (4.3.0-1) unstable; urgency=medium
+
+  * [9653793] New upstream release (4.3.0)
+  * [8a65b69] Delete upstream patches, refresh the rest
+
+ -- Ferenc Wágner <wferi@debian.org>  Sun, 26 May 2024 19:28:04 +0200
+
+dlm (4.2.0-4) unstable; urgency=medium
+
+  [ Chris Hofstaedtler ]
+  * [2755925] Delegate placement of udev files to pkg-config data (Closes:
+    #1057751)
+
+  [ Valentin Vidic ]
+  * [3d237e4] Update Build-Depends pkg-config to pkgconf
+  * [f2b7a9c] Update Standards-Version to 4.7.0 (no changes required)
+  * [556159d] Update patches forwarded status
+  * [4339b52] Update lintian-overrides for new location of udev rules
+
+ -- Valentin Vidic <vvidic@debian.org>  Sat, 11 May 2024 15:03:13 +0200
+
+dlm (4.2.0-3) unstable; urgency=medium
+
+  * [d012be6] Update Standards-Version to 4.6.2 (no changes required)
+  * [75ef292] New patch: dlm_controld: remove unnecessary header include
+    (Closes: #1042166)
+
+ -- Valentin Vidic <vvidic@debian.org>  Thu, 27 Jul 2023 21:05:33 +0200
+
+dlm (4.2.0-2) unstable; urgency=medium
+
+  * [668bd92] New patch: Revert "treewide: add -fcf-protection=full to CFLAGS"
+
+ -- Valentin Vidic <vvidic@debian.org>  Thu, 17 Nov 2022 20:28:53 +0100
+
+dlm (4.2.0-1) unstable; urgency=medium
+
+  [ Valentin Vidic ]
+  * [a0a15db] New upstream version 4.2.0
+  * [ef31dac] Refresh our patches
+  * [bb2f6d8] Update Standards-Version to 4.6.1 (no changes required)
+  * [5e44154] New patch: Disable annobin plugin not available in Debian
+  * [a7bcd2e] Update copyright year for Debian files
+
+  [ Helmut Grohne ]
+  * [c9b1c2e] Fix FTCBFS: export PKG_CONFIG for all targets. (Closes: #1024076)
+
+ -- Valentin Vidic <vvidic@debian.org>  Wed, 16 Nov 2022 00:35:55 +0100
+
+dlm (4.1.1-1) unstable; urgency=medium
+
+  * [14a17b3] Switch to the monolithic Salsa CI recipe
+  * [ab71a78] Enable diffoscope in Salsa CI
+  * [4319123] Turns out upstream provides tarballs after all
+  * [5181ea2] New upstream release (4.1.1)
+  * [64477ad] Refresh our patches
+  * [db9afff] Acknowledge new symbols
+  * [c7e6742] New patch: Fix typo: specfic => specific
+  * [fb18deb] Update Standards-Version to 4.6.0 (no changes required)
+
+ -- Ferenc Wágner <wferi@debian.org>  Sat, 27 Nov 2021 12:47:05 +0100
+
 dlm (4.1.0-1) unstable; urgency=medium
 
   * [a3feca1] Enable Salsa CI

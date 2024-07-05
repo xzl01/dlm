@@ -43,11 +43,7 @@ int dlm_new_lockspace(const char *name, mode_t mode, uint32_t flags)
 .PP
 Performs the same function as 
 .B dlm_create_lockspace()
-above, but passes some creation flags to the call that affect the lockspace being created. Currently supported flags are:
-.nf
-DLM_LSFL_TIMEWARN the dlm should emit warnings over netlink when locks
-                  have been waiting too long; required for deadlock
-                  detection
+above, but passes some creation flags to the call that affect the lockspace being created.
 .fi
 .SS
 int dlm_release_lockspace(const char *name, dlm_lshandle_t ls, int force)

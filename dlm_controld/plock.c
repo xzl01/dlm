@@ -9,13 +9,8 @@
 #include "dlm_daemon.h"
 #include <linux/dlm_plock.h>
 
-/* FIXME: remove this once everyone is using the version of
- * dlm_plock.h which defines it */
-
-#ifndef DLM_PLOCK_FL_CLOSE
-#warning DLM_PLOCK_FL_CLOSE undefined. Enabling build workaround.
-#define DLM_PLOCK_FL_CLOSE 1
-#define DLM_PLOCK_BUILD_WORKAROUND 1
+#ifndef DLM_PLOCK_OP_CANCEL
+#define DLM_PLOCK_OP_CANCEL 4
 #endif
 
 static uint32_t plock_read_count;
@@ -141,6 +136,8 @@ static const char *op_str(int optype)
 	switch (optype) {
 	case DLM_PLOCK_OP_LOCK:
 		return "LK";
+	case DLM_PLOCK_OP_CANCEL:
+		return "CL";
 	case DLM_PLOCK_OP_UNLOCK:
 		return "UN";
 	case DLM_PLOCK_OP_GET:
@@ -198,7 +195,7 @@ static unsigned long time_diff_ms(struct timeval *begin, struct timeval *end)
 	return (result.tv_sec * 1000) + (result.tv_usec / 1000);
 }
 
-static uint64_t dt_usec(struct timeval *start, struct timeval *stop)
+static uint64_t dt_usec(const struct timeval *start, const struct timeval *stop)
 {
 	uint64_t dt;
 
@@ -455,7 +452,6 @@ static int add_lock(struct resource *r, uint32_t nodeid, uint64_t owner,
 	po = malloc(sizeof(struct posix_lock));
 	if (!po)
 		return -ENOMEM;
-	memset(po, 0, sizeof(struct posix_lock));
 
 	po->start = start;
 	po->end = end;
@@ -463,6 +459,7 @@ static int add_lock(struct resource *r, uint32_t nodeid, uint64_t owner,
 	po->owner = owner;
 	po->pid = pid;
 	po->ex = ex;
+	po->flags = 0;
 	list_add_tail(&po->list, &r->locks);
 
 	return 0;
@@ -660,7 +657,7 @@ static void clear_waiters(struct lockspace *ls, struct resource *r,
 
 		list_del(&w->list);
 
-		log_elock(ls, "clear waiter %llx %llx-%llx %d/%u/%llx",
+		log_dlock(ls, "clear waiter %llx %llx-%llx %d/%u/%llx",
 			  (unsigned long long)in->number,
 			  (unsigned long long)in->start,
 			  (unsigned long long)in->end,
@@ -680,12 +677,12 @@ static int add_waiter(struct lockspace *ls, struct resource *r,
 	if (!w)
 		return -ENOMEM;
 	memcpy(&w->info, in, sizeof(struct dlm_plock_info));
+	w->flags = 0;
 	list_add_tail(&w->list, &r->waiters);
 	return 0;
 }
 
-static void write_result(struct lockspace *ls, struct dlm_plock_info *in,
-			 int rv)
+static void write_result(struct dlm_plock_info *in, int rv)
 {
 	int write_rv;
 
@@ -719,7 +716,7 @@ static void do_waiters(struct lockspace *ls, struct resource *r)
 		rv = lock_internal(ls, r, in);
 
 		if (in->nodeid == our_nodeid)
-			write_result(ls, in, rv);
+			write_result(in, rv);
 
 		free(w);
 	}
@@ -744,9 +741,43 @@ static void do_lock(struct lockspace *ls, struct dlm_plock_info *in,
 
  out:
 	if (in->nodeid == our_nodeid && rv != -EINPROGRESS)
-		write_result(ls, in, rv);
+		write_result(in, rv);
 
 	do_waiters(ls, r);
+	put_resource(ls, r);
+}
+
+static int remove_waiter(const struct resource *r, const struct dlm_plock_info *in)
+{
+	struct lock_waiter *w;
+
+	list_for_each_entry(w, &r->waiters, list) {
+		if (w->info.nodeid == in->nodeid &&
+		    w->info.fsid == in->fsid &&
+		    w->info.number == in->number &&
+		    w->info.owner == in->owner &&
+		    w->info.pid == in->pid &&
+		    w->info.start == in->start &&
+		    w->info.end == in->end &&
+		    w->info.ex == in->ex) {
+			list_del(&w->list);
+			free(w);
+			return 0;
+		}
+	}
+
+	return -ENOENT;
+}
+
+static void do_cancel(struct lockspace *ls, struct dlm_plock_info *in,
+		      struct resource *r)
+{
+	int rv;
+
+	rv = remove_waiter(r, in);
+	if (in->nodeid == our_nodeid)
+		write_result(in, rv);
+
 	put_resource(ls, r);
 }
 
@@ -757,18 +788,14 @@ static void do_unlock(struct lockspace *ls, struct dlm_plock_info *in,
 
 	rv = unlock_internal(ls, r, in);
 
-#ifdef DLM_PLOCK_BUILD_WORKAROUND
-	if (in->pad & DLM_PLOCK_FL_CLOSE) {
-#else
 	if (in->flags & DLM_PLOCK_FL_CLOSE) {
-#endif
 		clear_waiters(ls, r, in);
 		/* no replies for unlock-close ops */
 		goto skip_result;
 	}
 
 	if (in->nodeid == our_nodeid)
-		write_result(ls, in, rv);
+		write_result(in, rv);
 
  skip_result:
 	do_waiters(ls, r);
@@ -787,7 +814,7 @@ static void do_get(struct lockspace *ls, struct dlm_plock_info *in,
 	else
 		rv = 0;
 
-	write_result(ls, in, rv);
+	write_result(in, rv);
 	put_resource(ls, r);
 }
 
@@ -819,6 +846,10 @@ static void __receive_plock(struct lockspace *ls, struct dlm_plock_info *in,
 		ls->last_plock_time = monotime();
 		do_lock(ls, in, r);
 		break;
+	case DLM_PLOCK_OP_CANCEL:
+		ls->last_plock_time = monotime();
+		do_cancel(ls, in, r);
+		break;
 	case DLM_PLOCK_OP_UNLOCK:
 		ls->last_plock_time = monotime();
 		do_unlock(ls, in, r);
@@ -830,7 +861,7 @@ static void __receive_plock(struct lockspace *ls, struct dlm_plock_info *in,
 		log_elock(ls, "receive_plock error from %d optype %d",
 			  from, in->optype);
 		if (from == our_nodeid)
-			write_result(ls, in, -EINVAL);
+			write_result(in, -EINVAL);
 	}
 }
 
@@ -1096,6 +1127,7 @@ static void save_pending_plock(struct lockspace *ls, struct resource *r,
 		return;
 	}
 	memcpy(&w->info, in, sizeof(struct dlm_plock_info));
+	w->flags = 0;
 	list_add_tail(&w->list, &r->pending);
 }
 
@@ -1522,8 +1554,6 @@ void process_plocks(int ci)
 
 	gettimeofday(&now, NULL);
 
-	memset(&info, 0, sizeof(info));
-
 	rv = do_read(plock_device_fd, &info, sizeof(info));
 	if (rv < 0) {
 		log_debug("process_plocks: read error %d fd %d\n",
@@ -1596,14 +1626,8 @@ void process_plocks(int ci)
 	return;
 
  fail:
-#ifdef DLM_PLOCK_BUILD_WORKAROUND
-	if (!(info.pad & DLM_PLOCK_FL_CLOSE)) {
-#else
-	if (!(info.flags & DLM_PLOCK_FL_CLOSE)) {
-#endif
-		info.rv = rv;
-		rv = write(plock_device_fd, &info, sizeof(info));
-	}
+	if (!(info.flags & DLM_PLOCK_FL_CLOSE))
+		write_result(&info, rv);
 }
 
 void process_saved_plocks(struct lockspace *ls)
@@ -1612,7 +1636,7 @@ void process_saved_plocks(struct lockspace *ls)
 	struct dlm_header *hd;
 	int count = 0;
 
-	log_dlock(ls, "process_saved_plocks begin");
+	log_plock(ls, "process_saved_plocks begin");
 
 	if (list_empty(&ls->saved_messages))
 		goto out;
@@ -1643,7 +1667,7 @@ void process_saved_plocks(struct lockspace *ls)
 		count++;
 	}
  out:
-	log_dlock(ls, "process_saved_plocks %d done", count);
+	log_plock(ls, "process_saved_plocks %d done", count);
 }
 
 /* locks still marked SYNCING should not go into the ckpt; the new node
@@ -1926,7 +1950,8 @@ void receive_plocks_data(struct lockspace *ls, struct dlm_header *hd, int len)
 		/* no locks should be included for owned resources */
 
 		if (owner && count) {
-			log_elock(ls, "recv_plocks_data %d:%u n %llu o %d bad count %u",
+			log_elock(ls, "recv_plocks_data %d:%u n %llu o %d bad count %" PRIu32,
+				  hd->nodeid, hd->msgdata,
 				  (unsigned long long)num, owner, count);
 			goto fail_free;
 		}
@@ -1957,6 +1982,7 @@ void receive_plocks_data(struct lockspace *ls, struct dlm_header *hd, int len)
 			po->pid		= le32_to_cpu(pp->pid);
 			po->nodeid	= le32_to_cpu(pp->nodeid);
 			po->ex		= pp->ex;
+			po->flags	= 0;
 			list_add_tail(&po->list, &r->locks);
 		} else {
 			w = malloc(sizeof(struct lock_waiter));
@@ -1968,6 +1994,7 @@ void receive_plocks_data(struct lockspace *ls, struct dlm_header *hd, int len)
 			w->info.pid	= le32_to_cpu(pp->pid);
 			w->info.nodeid	= le32_to_cpu(pp->nodeid);
 			w->info.ex	= pp->ex;
+			w->flags	= 0;
 			list_add_tail(&w->list, &r->waiters);
 		}
 		pp++;
@@ -2055,8 +2082,7 @@ void purge_plocks(struct lockspace *ls, int nodeid, int unmount)
 			send_pending_plocks(ls, r);
 		}
 		
-		if (!list_empty(&r->waiters))
-			do_waiters(ls, r);
+		do_waiters(ls, r);
 
 		if (!opt(plock_ownership_ind) &&
 		    list_empty(&r->locks) && list_empty(&r->waiters)) {

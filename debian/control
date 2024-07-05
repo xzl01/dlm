@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Debian HA Maintainers <debian-ha-maintainers@lists.alioth.debian.org>
 Uploaders: Ferenc Wágner <wferi@debian.org>,
  Valentin Vidic <vvidic@debian.org>
-Standards-Version: 4.5.1
+Standards-Version: 4.7.0
 Rules-Requires-Root: no
 Build-Depends:
  debhelper-compat (= 13),
@@ -15,7 +15,8 @@ Build-Depends:
  libsystemd-dev,
  libxml2-dev,
  pacemaker-dev,
- pkg-config,
+ pkgconf,
+ systemd-dev,
  uuid-dev,
 Homepage: https://pagure.io/dlm
 Vcs-Browser: https://salsa.debian.org/ha-team/dlm
